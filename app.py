@@ -3919,8 +3919,9 @@ st.markdown(
 )
 '''
 
-out = Path("/mnt/data/PartnerLens_AI_FINAL_ChatGPT_Style.py")
+out = Path("PartnerLens_AI_FINAL_ChatGPT_Style.py")
 out.write_text(code, encoding="utf-8")
+
 
 requirements = """streamlit>=1.40
 pandas>=2.0
@@ -3928,8 +3929,7 @@ numpy>=1.26
 matplotlib>=3.8
 scikit-learn>=1.4
 openai>=1.0
-"""
-req = Path("/mnt/data/requirements_partnerlens_final.txt")
+req = Path("requirements_partnerlens_final.txt")
 req.write_text(requirements, encoding="utf-8")
 
 setup = """PARTNERLENS AI — STREAMLIT CLOUD AI SETUP
