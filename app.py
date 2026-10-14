@@ -1,7 +1,11 @@
 # PartnerLens AI
 # A polished Streamlit relationship self-discovery and communication practice app.
-
-
+#
+# IMPORTANT:
+# - This app is educational and reflective. It is not therapy or diagnosis.
+# - AI features require an Groq API key in Streamlit Secrets.
+# - The AI guide and simulator preserve conversation context in st.session_state.
+# - The app is designed to stay usable even when the API is unavailable.
 
 from __future__ import annotations
 
@@ -53,7 +57,7 @@ st.set_page_config(
 APP_NAME = "PartnerLens AI"
 APP_TAGLINE = "Relationship self-discovery, compatibility reflection, and communication practice."
 APP_VERSION = "3.0"
-DEFAULT_OPENAI_MODEL = "gpt-6-luna"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 MAX_AI_CALLS_PER_SESSION = 60
 MAX_HISTORY_MESSAGES = 24
 MAX_MESSAGE_CHARACTERS = 7000
@@ -1002,8 +1006,11 @@ def short_text(text: str, max_chars: int = 240) -> str:
 
 
 # =============================================================================
-# 9. OPENAI CONFIGURATION
+# 9. GROQ FREE-TIER AI CONFIGURATION
 # =============================================================================
+
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
 
 def get_secret(name: str, default: str = "") -> str:
     try:
@@ -1015,36 +1022,40 @@ def get_secret(name: str, default: str = "") -> str:
         return default
 
 
-def resolve_openai_api_key() -> str:
+def resolve_groq_api_key() -> str:
     return get_secret(
-        "OPENAI_API_KEY",
-        os.getenv("OPENAI_API_KEY", ""),
+        "GROQ_API_KEY",
+        os.getenv("GROQ_API_KEY", ""),
     )
 
 
-def resolve_openai_model() -> str:
+def resolve_groq_model() -> str:
     return (
         get_secret(
-            "OPENAI_MODEL",
-            os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+            "GROQ_MODEL",
+            os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL),
         )
-        or DEFAULT_OPENAI_MODEL
+        or DEFAULT_GROQ_MODEL
     )
 
 
-OPENAI_API_KEY = resolve_openai_api_key()
-OPENAI_MODEL = resolve_openai_model()
-AI_AVAILABLE = bool(OPENAI_API_KEY and OpenAI is not None)
+GROQ_API_KEY = resolve_groq_api_key()
+GROQ_MODEL = resolve_groq_model()
+
+AI_AVAILABLE = bool(
+    GROQ_API_KEY
+    and OpenAI is not None
+)
 
 
-def openai_status_message() -> None:
+def ai_status_message() -> None:
     if AI_AVAILABLE:
         st.markdown(
             f"""
             <div class="pl-ai-online">
-                <b>● AI Online</b><br>
+                <b>● Free AI Online</b><br>
                 <span style="color:#667087;">
-                    Model: {OPENAI_MODEL}. Conversation memory is active for this session.
+                    Groq · {GROQ_MODEL}. Conversation memory is active for this session.
                 </span>
             </div>
             """,
@@ -1054,10 +1065,9 @@ def openai_status_message() -> None:
         st.markdown(
             """
             <div class="pl-ai-offline">
-                <b>○ AI Offline — local fallback mode</b><br>
+                <b>○ Free AI not connected yet</b><br>
                 <span style="color:#667087;">
-                    Add OPENAI_API_KEY in Streamlit Cloud → Manage app → Settings → Secrets
-                    to enable natural conversational AI.
+                    Add GROQ_API_KEY in Streamlit Cloud → Manage app → Settings → Secrets.
                 </span>
             </div>
             """,
@@ -1077,24 +1087,17 @@ def sanitize_history(
 
         if role not in {"user", "assistant"}:
             continue
-
         if not content:
             continue
-
         if len(content) > MAX_MESSAGE_CHARACTERS:
             content = content[:MAX_MESSAGE_CHARACTERS]
 
-        clean.append(
-            {
-                "role": role,
-                "content": content,
-            }
-        )
+        clean.append({"role": role, "content": content})
 
     return clean
 
 
-def call_openai(
+def call_ai(
     messages: Sequence[Dict[str, str]],
     instructions: str,
     *,
@@ -1102,43 +1105,53 @@ def call_openai(
 ) -> str:
     if not AI_AVAILABLE:
         raise RuntimeError(
-            "OpenAI is not configured. Add OPENAI_API_KEY to Streamlit Secrets."
+            "Groq AI is not configured. Add GROQ_API_KEY to Streamlit Secrets."
         )
 
     if st.session_state.ai_calls >= MAX_AI_CALLS_PER_SESSION:
         raise RuntimeError(
-            "This session reached the demo AI message limit. "
-            "Use Clear entire session to start a fresh session."
+            "This app session reached its AI-call safety limit. "
+            "Use Clear entire session to start fresh."
         )
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
-
     history = sanitize_history(messages)
-
     if not history:
         raise ValueError("No conversation message was provided.")
 
+    client = OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url=GROQ_BASE_URL,
+    )
+
+    api_messages: List[Dict[str, str]] = [
+        {"role": "system", "content": instructions}
+    ]
+    api_messages.extend(history)
+
     try:
-        response = client.responses.create(
-            model=OPENAI_MODEL,
-            instructions=instructions,
-            input=history,
-            max_output_tokens=max_output_tokens,
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=api_messages,
+            temperature=0.65,
+            max_completion_tokens=max_output_tokens,
+            top_p=0.95,
         )
     except Exception as exc:
         st.session_state.api_last_error = f"{type(exc).__name__}: {exc}"
         raise
 
-    text = getattr(response, "output_text", "") or ""
-    text = text.strip()
+    try:
+        answer = response.choices[0].message.content or ""
+    except Exception:
+        answer = ""
 
-    if not text:
-        raise RuntimeError("The AI returned an empty response.")
+    answer = answer.strip()
+    if not answer:
+        raise RuntimeError("The Groq model returned an empty response.")
 
     st.session_state.ai_calls += 1
     st.session_state.api_last_error = None
-
-    return text
+    return answer
 
 
 # =============================================================================
@@ -2207,11 +2220,11 @@ st.sidebar.divider()
 
 if AI_AVAILABLE:
     st.sidebar.success(
-        f"● AI Online · {OPENAI_MODEL}"
+        f"● Free AI Online · {GROQ_MODEL}"
     )
 else:
     st.sidebar.warning(
-        "○ AI Offline · local fallback"
+        "○ Free AI not connected"
     )
 
 st.sidebar.caption(
@@ -2228,20 +2241,19 @@ if st.sidebar.button(
 
     safe_rerun()
 
-with st.sidebar.expander("⚙️ AI setup"):
+with st.sidebar.expander("⚙️ Free AI setup"):
     st.write(
-        "For real conversational responses, add these in "
+        "Create a free Groq API key, then add these in "
         "**Manage app → Settings → Secrets**:"
     )
 
     st.code(
-        'OPENAI_API_KEY = "your-key-here"\n'
-        'OPENAI_MODEL = "gpt-6-luna"',
+        'GROQ_API_KEY = "gsk_your_key_here"\\nGROQ_MODEL = "openai/gpt-oss-20b"',
         language="toml",
     )
 
     st.caption(
-        "Never paste your API key into app.py or commit it to GitHub."
+        "Keep the key private. Do not paste it into app.py or commit it to GitHub."
     )
 
     if st.session_state.api_last_error:
@@ -2251,7 +2263,6 @@ with st.sidebar.expander("⚙️ AI setup"):
                 600,
             )
         )
-
 
 # =============================================================================
 # 18. GLOBAL HERO
@@ -2437,18 +2448,18 @@ def render_home() -> None:
     with right:
         if AI_AVAILABLE:
             st.success(
-                "Your OpenAI key is configured. The Guide and Simulator can use real conversational AI."
+                "Your Groq key is configured. The Guide and Simulator can use real conversational AI."
             )
         else:
             st.warning(
-                "The app is working, but the AI pages are in fallback mode until you add OPENAI_API_KEY."
+                "The app is working, but the AI pages are in fallback mode until you add GROQ_API_KEY."
             )
 
         info_card(
             "Recommended model",
             (
-                "The default is <b>gpt-6-luna</b> because it is fast and cost-efficient "
-                "for conversational workloads. You can change OPENAI_MODEL in Streamlit Secrets."
+                "The default is <b>openai/gpt-oss-20b</b> because it is fast and cost-efficient "
+                "for conversational workloads. You can change GROQ_MODEL in Streamlit Secrets."
             ),
             "⚡",
         )
@@ -2854,7 +2865,7 @@ def render_ai_guide() -> None:
         ),
     )
 
-    openai_status_message()
+    ai_status_message()
 
     st.markdown(
         """
@@ -2939,7 +2950,7 @@ def render_ai_guide() -> None:
                 with st.spinner(
                     "Thinking…"
                 ):
-                    reply = call_openai(
+                    reply = call_ai(
                         st.session_state.guide_messages,
                         guide_instructions(),
                         max_output_tokens=900,
@@ -2950,10 +2961,14 @@ def render_ai_guide() -> None:
                     st.session_state.guide_messages,
                 )
         except Exception as exc:
-            reply = (
-                "I couldn't reach the AI service for this message. "
-                "The rest of the app is still available.\n\n"
-                f"**Technical detail:** `{type(exc).__name__}: {exc}`"
+            st.session_state.api_last_error = f"{type(exc).__name__}: {exc}"
+            reply = local_guide_reply(
+                prompt,
+                st.session_state.guide_messages,
+            )
+            reply += (
+                "\n\n*Free Groq AI was temporarily unavailable, so PartnerLens "
+                "used its built-in fallback for this reply.*"
             )
 
         st.session_state.guide_messages.append(
@@ -3105,7 +3120,7 @@ def render_conversation_coach() -> None:
                     with st.spinner(
                         "Rewriting…"
                     ):
-                        rewrite = call_openai(
+                        rewrite = call_ai(
                             messages,
                             coach_rewrite_instructions(),
                             max_output_tokens=650,
@@ -3122,7 +3137,7 @@ def render_conversation_coach() -> None:
                     )
         else:
             st.info(
-                "Add your OpenAI API key to enable a contextual AI rewrite."
+                "Add your Groq API key to enable a contextual AI rewrite."
             )
 
 
@@ -3179,7 +3194,7 @@ def render_ai_simulator() -> None:
             }
         ]
 
-    openai_status_message()
+    ai_status_message()
 
     info_card(
         style,
@@ -3232,7 +3247,7 @@ def render_ai_simulator() -> None:
                 with st.spinner(
                     "Preparing debrief…"
                 ):
-                    debrief = call_openai(
+                    debrief = call_ai(
                         st.session_state.sim_messages,
                         debrief_instructions(),
                         max_output_tokens=700,
@@ -3300,7 +3315,7 @@ def render_ai_simulator() -> None:
                 with st.spinner(
                     "Partner is replying…"
                 ):
-                    reply = call_openai(
+                    reply = call_ai(
                         st.session_state.sim_messages,
                         simulator_instructions(
                             scenario,
@@ -3318,9 +3333,16 @@ def render_ai_simulator() -> None:
                 )
 
         except Exception as exc:
-            reply = (
-                "I couldn't generate the AI role-play response. "
-                f"`{type(exc).__name__}: {exc}`"
+            st.session_state.api_last_error = f"{type(exc).__name__}: {exc}"
+            reply = local_simulator_reply(
+                prompt,
+                scenario,
+                style,
+                difficulty,
+            )
+            reply += (
+                "\n\n*Free Groq AI was temporarily unavailable, so the simulator "
+                "used its built-in fallback for this turn.*"
             )
 
         st.session_state.sim_messages.append(
@@ -3816,7 +3838,8 @@ st.divider()
 
 st.caption(
     f"💞 {APP_NAME} v{APP_VERSION} · Python · Streamlit · Pandas · NumPy · "
-    f"Matplotlib · OpenAI Responses API · Responsible reflection"
+    f"Matplotlib · Groq Free AI · Responsible reflection"
 )
+
 
 
