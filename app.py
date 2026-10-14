@@ -3932,7 +3932,7 @@ openai>=1.0
 req = Path("requirements_partnerlens_final.txt")
 req.write_text(requirements, encoding="utf-8")
 
-setup = """PARTNERLENS AI — STREAMLIT CLOUD AI SETUP
+setup = """PARTNERLENS AI - STREAMLIT CLOUD AI SETUP
 
 IMPORTANT:
 Do NOT put your OpenAI API key inside app.py or upload it to GitHub.
